@@ -4,8 +4,8 @@ const port = 4000;
 
 app.use(express.json());
 
-// For scan-storage-system
-app.get('/scan', (req, res) => {
+// ✅ Correct route for Supabase functions to call
+app.get('/api/files', (req, res) => {
   res.json({
     files: [
       {
@@ -25,28 +25,6 @@ app.get('/scan', (req, res) => {
     ],
     total_count: 2,
     total_size: 1572864
-  });
-});
-
-// For run-policies
-app.get('/api/files', (req, res) => {
-  res.json({
-    files: [
-      {
-        path: '/ifs/projects/report.docx',
-        size: 1048576,
-        last_modified: '2023-11-01T12:00:00Z',
-        last_accessed: '2023-12-15T08:30:00Z',
-        owner: 'alice',
-      },
-      {
-        path: '/ifs/archive/photo.png',
-        size: 524288,
-        last_modified: '2022-07-22T09:00:00Z',
-        last_accessed: '2023-06-01T10:00:00Z',
-        owner: 'bob',
-      }
-    ]
   });
 });
 
