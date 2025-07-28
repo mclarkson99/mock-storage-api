@@ -4,7 +4,7 @@ const port = 4000;
 
 app.use(express.json());
 
-app.get('/scan', (req, res) => {
+app.get('/api/files', (req, res) => {
   res.json({
     files: [
       {
@@ -30,3 +30,4 @@ app.get('/scan', (req, res) => {
 app.listen(port, () => {
   console.log(`✅ Mock Storage API running at http://localhost:${port}`);
 });
+
