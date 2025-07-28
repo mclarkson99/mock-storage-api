@@ -4,7 +4,7 @@ const port = 4000;
 
 app.use(express.json());
 
-app.get('/api/files', (req, res) => {
+app.get('/scan', (req, res) => {
   res.json({
     files: [
       {
