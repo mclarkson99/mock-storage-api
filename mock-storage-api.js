@@ -5,54 +5,119 @@ const app = express();
 app.use(express.json());
 
 // --- Root health check (for Test Connection) ---
-app.get("/", (_req, res) => res.json({ ok: true, service: "mock-storage-api" }));
+app.get("/", (_req, res) =>
+  res.json({ ok: true, service: "mock-storage-api" })
+);
 
-// --- Original endpoint you already had ---
-app.get("/api/files", (_req, res) => {
+// ===== Helpers: deterministic pseudo-random generator =====
+function fnv1a32(str) {
+  let h = 0x811c9dc5 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+function prngForIdx(seed, idx) {
+  let h = fnv1a32(`${seed}:${idx}`);
+  return () => {
+    h ^= h << 13; h >>>= 0;
+    h ^= h >>> 17; h >>>= 0;
+    h ^= h << 5;  h >>>= 0;
+    return (h >>> 0) / 0xFFFFFFFF;
+  };
+}
+
+function synthesizeFile(seed, idx, dirSpan = 1000, userCount = 120) {
+  const rand = prngForIdx(seed, idx);
+  const roots = ["projects","finance","legal","media","backups","home","departments/HR","departments/Eng","departments/IT","departments/OPS"];
+  const exts  = [".pdf",".docx",".xlsx",".pptx",".csv",".txt",".jpg",".mp4",".zip"];
+
+  const root = roots[Math.floor(rand() * roots.length)];
+  const subA = `dir${Math.floor(rand() * dirSpan)}`;
+  const subB = `dir${Math.floor(rand() * dirSpan)}`;
+  const ext  = exts[Math.floor(rand() * exts.length)];
+  const name = `file_${String(idx).padStart(6,"0")}${ext}`;
+
+  const size = Math.max(512, Math.floor(Math.pow(rand(), 2.8) * 400 * 1024 * 1024));
+  const daysAgo = Math.floor(rand() * 365 * 5);
+  const mtime = new Date(Date.now() - daysAgo * 86400000).toISOString();
+  const owner = `user${String(1 + Math.floor(rand() * userCount)).padStart(3, "0")}`;
+
+  return { path: `/ifs/${root}/${subA}/${subB}/${name}`, size, mtime, owner };
+}
+
+function clampInt(v, min, max, fallback) {
+  const n = Number.parseInt(v ?? "", 10);
+  if (Number.isNaN(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+// --- /scan: paginated synthetic files ---
+app.get("/scan", (req, res) => {
+  const total    = clampInt(req.query.count, 1000, 500000, 10000);
+  const page     = clampInt(req.query.page, 1, Number.MAX_SAFE_INTEGER, 1);
+  const pageSize = clampInt(req.query.pageSize, 100, 10000, 1000);
+  const systemId = req.query.systemId || "demo";
+  const seed     = (req.query.seed || "storalogic") + ":" + systemId;
+
+  const startIdx = (page - 1) * pageSize + 1;
+  const endIdx   = Math.min(startIdx + pageSize - 1, total);
+
+  const files = [];
+  for (let i = startIdx; i <= endIdx; i++) files.push(synthesizeFile(seed, i));
+
+  const hasMore = endIdx < total;
+  const directoryCount = Math.floor(total / 20) + 120;
+
+  // approximate total bytes by sampling
+  let sampleCount = Math.min(10000, total);
+  let sampleBytes = 0;
+  const step = Math.max(1, Math.floor(total / sampleCount));
+  for (let i = 1; i <= total; i += step) sampleBytes += synthesizeFile(seed, i).size;
+  const avgBytes = sampleBytes / Math.ceil(total / step);
+  const physicalBytesEstimate = Math.floor(avgBytes * total);
+
   res.json({
-    files: [
-      {
-        path: "/ifs/projects/report.docx",
-        size: 1048576,
-        last_modified: "2023-11-01T12:00:00Z",
-        last_accessed: "2023-12-15T08:30:00Z",
-        owner: "alice",
-      },
-      {
-        path: "/ifs/archive/photo.png",
-        size: 524288,
-        last_modified: "2022-07-22T09:00:00Z",
-        last_accessed: "2023-06-01T10:00:00Z",
-        owner: "bob",
-      },
-    ],
-    total_count: 2,
-    total_size: 1572864,
+    total,
+    page,
+    pageSize,
+    hasMore,
+    files,
+    stats: {
+      fileCount: total,
+      directoryCount,
+      uniqueUsers: 120,
+      physicalBytes: physicalBytesEstimate
+    }
   });
 });
 
-// --- New: /scan endpoint for files (simplified payload) ---
-app.get("/scan", (_req, res) => {
+// --- /stats: summary numbers for dashboards ---
+app.get("/stats", (req, res) => {
+  const total    = clampInt(req.query.count, 1000, 500000, 10000);
+  const systemId = req.query.systemId || "demo";
+  const seed     = (req.query.seed || "storalogic") + ":" + systemId;
+
+  let sampleCount = Math.min(10000, total);
+  let sampleBytes = 0;
+  const step = Math.max(1, Math.floor(total / sampleCount));
+  for (let i = 1; i <= total; i += step) sampleBytes += synthesizeFile(seed, i).size;
+  const avgBytes = sampleBytes / Math.ceil(total / step);
+  const physicalBytesEstimate = Math.floor(avgBytes * total);
+
   res.json({
-    files: [
-      { path: "/ifs/projects/report.docx", size_bytes: 1048576, owner: "alice" },
-      { path: "/ifs/archive/photo.png", size_bytes: 524288, owner: "bob" },
-    ],
+    fileCount: total,
+    directoryCount: Math.floor(total / 20) + 120,
+    uniqueUsers: 120,
+    physicalBytes: physicalBytesEstimate
   });
 });
 
-// --- New: /metrics endpoint for capacity snapshot ---
-app.get("/metrics", (_req, res) => {
-  res.json({
-    capacity_usage_percent: 42.5,
-    directory_count: 2,
-    file_count: 2,
-    unique_user_count: 2,
-  });
-});
-
-// --- IMPORTANT: use Render PORT + bind 0.0.0.0 ---
+// --- Start server (Render requires 0.0.0.0) ---
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Mock Storage API running on port ${PORT}`);
 });
+
