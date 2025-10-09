@@ -29,6 +29,7 @@ function prngForIdx(seed, idx) {
   };
 }
 
+// ===== File synthesizer with realistic timestamps =====
 function synthesizeFile(seed, idx, dirSpan = 1000, userCount = 120) {
   const rand = prngForIdx(seed, idx);
   const roots = ["projects","finance","legal","media","backups","home","departments/HR","departments/Eng","departments/IT","departments/OPS"];
@@ -40,12 +41,36 @@ function synthesizeFile(seed, idx, dirSpan = 1000, userCount = 120) {
   const ext  = exts[Math.floor(rand() * exts.length)];
   const name = `file_${String(idx).padStart(6,"0")}${ext}`;
 
+  // Size skewed small with occasional large files (up to ~400MB)
   const size = Math.max(512, Math.floor(Math.pow(rand(), 2.8) * 400 * 1024 * 1024));
-  const daysAgo = Math.floor(rand() * 365 * 5);
-  const mtime = new Date(Date.now() - daysAgo * 86400000).toISOString();
+
+  // ---- Timestamps: created_at <= last_modified <= last_accessed <= now ----
+  const nowMs = Date.now();
+  const dayMs = 86_400_000; // 24h
+
+  const createdDaysAgo  = Math.floor(rand() * 365 * 5);               // up to ~5 years ago
+  const modifiedDaysAgo = Math.floor(rand() * (createdDaysAgo + 1));  // not before created
+  const accessedDaysAgo = Math.floor(rand() * (modifiedDaysAgo + 1)); // not before modified
+
+  const createdAt  = new Date(nowMs - createdDaysAgo  * dayMs);
+  const modifiedAt = new Date(nowMs - modifiedDaysAgo * dayMs);
+  const accessedAt = new Date(nowMs - accessedDaysAgo * dayMs);
+
   const owner = `user${String(1 + Math.floor(rand() * userCount)).padStart(3, "0")}`;
 
-  return { path: `/ifs/${root}/${subA}/${subB}/${name}`, size, mtime, owner };
+  return {
+    path: `/ifs/${root}/${subA}/${subB}/${name}`,
+    size,
+    owner,
+
+    // New fields
+    created_at: createdAt.toISOString(),
+    last_modified: modifiedAt.toISOString(),
+    last_accessed: accessedAt.toISOString(),
+
+    // Back-compat (some code reads mtime)
+    mtime: modifiedAt.toISOString(),
+  };
 }
 
 function clampInt(v, min, max, fallback) {
@@ -135,3 +160,4 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Mock Storage API running on port ${PORT}`);
 });
+
