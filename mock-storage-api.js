@@ -70,6 +70,9 @@ function synthesizeFile(seed, idx, dirSpan = 1000, userCount = 120) {
 
     // Back-compat (some code reads mtime)
     mtime: modifiedAt.toISOString(),
+
+    // 👇 Added for UI that expects camelCase
+    lastModified: modifiedAt.toISOString(),
   };
 }
 
@@ -160,4 +163,3 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Mock Storage API running on port ${PORT}`);
 });
-
